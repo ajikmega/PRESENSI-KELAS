@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Users, GraduationCap, BookOpen, CheckCircle, Clock, ClipboardCheck, Save, CheckCheck, AlertCircle, RefreshCw } from 'lucide-react';
+import { Users, GraduationCap, BookOpen, CheckCircle, Clock, ClipboardCheck, Save, CheckCheck, AlertCircle, RefreshCw, Edit3 } from 'lucide-react';
 import { Student, ClassRoom, Subject, AttendanceRecord, AttendanceStatus } from '../types';
 import { supabase } from '../lib/supabase';
 
@@ -19,17 +19,26 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classes, subjects, atte
   const [qSubjectId, setQSubjectId] = useState('');
   const [localAbsence, setLocalAbsence] = useState<Record<string, AttendanceStatus>>({});
   const [isSaving, setIsSaving] = useState(false);
+  const [hasExistingData, setHasExistingData] = useState(false);
 
   useEffect(() => {
     if (qClassId && qSubjectId) {
       const existing = attendance.filter(a => 
         a.classId === qClassId && a.subjectId === qSubjectId && a.date === today
       );
-      const mapped: Record<string, AttendanceStatus> = {};
-      existing.forEach(a => mapped[a.studentId] = a.status);
-      setLocalAbsence(mapped);
+      
+      if (existing.length > 0) {
+        const mapped: Record<string, AttendanceStatus> = {};
+        existing.forEach(a => mapped[a.studentId] = a.status);
+        setLocalAbsence(mapped);
+        setHasExistingData(true);
+      } else {
+        setLocalAbsence({});
+        setHasExistingData(false);
+      }
     } else {
       setLocalAbsence({});
+      setHasExistingData(false);
     }
   }, [qClassId, qSubjectId, attendance, today]);
 
@@ -51,6 +60,7 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classes, subjects, atte
     if (!qClassId || !qSubjectId) return;
     setIsSaving(true);
 
+    // KUNCI UTAMA: ID yang deterministik mencegah duplikasi di level Database
     const newRecords: AttendanceRecord[] = qStudents.map(s => ({
       id: `${qClassId}-${qSubjectId}-${today}-${s.id}`,
       studentId: s.id,
@@ -63,11 +73,12 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classes, subjects, atte
     const { error } = await supabase.from('attendance').upsert(newRecords);
 
     if (!error) {
+      // KUNCI KEDUA: Filter state sebelum update mencegah duplikasi di level UI
       setAttendance(prev => [
         ...prev.filter(a => !(a.classId === qClassId && a.subjectId === qSubjectId && a.date === today)),
         ...newRecords
       ]);
-      alert('Presensi berhasil disimpan!');
+      alert(hasExistingData ? 'Presensi berhasil diperbarui!' : 'Presensi berhasil disimpan!');
     } else {
       alert('Gagal menyimpan: ' + error.message);
     }
@@ -103,12 +114,16 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classes, subjects, atte
         <div className="p-6 border-b border-slate-50 bg-slate-50/40">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
             <div className="flex items-center space-x-3">
-              <div className="p-2.5 bg-indigo-600 text-white rounded-xl shadow-lg shadow-indigo-200">
-                <ClipboardCheck size={24} />
+              <div className={`p-2.5 rounded-xl shadow-lg ${hasExistingData ? 'bg-emerald-600 shadow-emerald-200' : 'bg-indigo-600 shadow-indigo-200'}`}>
+                {hasExistingData ? <Edit3 size={24} className="text-white" /> : <ClipboardCheck size={24} className="text-white" />}
               </div>
               <div>
-                <h3 className="text-xl font-extrabold text-slate-800">Presensi Cepat</h3>
-                <p className="text-sm text-slate-500 font-medium">Input kehadiran hari ini dengan mudah</p>
+                <h3 className="text-xl font-extrabold text-slate-800">
+                  {hasExistingData ? 'Update Presensi' : 'Presensi Cepat'}
+                </h3>
+                <p className="text-sm text-slate-500 font-medium">
+                  {hasExistingData ? 'Sesi ini sudah memiliki data. Anda dalam mode edit.' : 'Input kehadiran hari ini dengan mudah'}
+                </p>
               </div>
             </div>
             <div className="flex flex-col sm:flex-row gap-2">
@@ -136,10 +151,15 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classes, subjects, atte
               <div className="flex-1 w-full">
                 <div className="flex justify-between items-end mb-2">
                   <span className="text-xs font-bold text-slate-400 uppercase tracking-tighter">Progres Pengisian</span>
-                  <span className="text-sm font-extrabold text-indigo-600">{markedCount} / {qStudents.length} Siswa</span>
+                  <span className={`text-sm font-extrabold ${hasExistingData ? 'text-emerald-600' : 'text-indigo-600'}`}>
+                    {markedCount} / {qStudents.length} Siswa {hasExistingData && '(Sudah Terisi)'}
+                  </span>
                 </div>
                 <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden p-0.5">
-                  <div className="h-full bg-indigo-500 rounded-full transition-all duration-700 ease-out shadow-sm" style={{ width: `${progressPercent}%` }}></div>
+                  <div 
+                    className={`h-full rounded-full transition-all duration-700 ease-out shadow-sm ${hasExistingData ? 'bg-emerald-500' : 'bg-indigo-500'}`} 
+                    style={{ width: `${progressPercent}%` }}
+                  ></div>
                 </div>
               </div>
               <button 
@@ -205,15 +225,21 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classes, subjects, atte
               <div className="sticky bottom-0 pt-6 mt-auto bg-white border-t border-slate-50 flex items-center justify-between">
                 <div className="hidden sm:block">
                   <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Status:</span>
-                  <span className="ml-2 text-xs font-extrabold text-indigo-600">{markedCount === qStudents.length ? 'Semua Terisi' : 'Belum Selesai'}</span>
+                  <span className={`ml-2 text-xs font-extrabold ${hasExistingData ? 'text-emerald-600' : 'text-indigo-600'}`}>
+                    {hasExistingData ? 'Sudah Ada di Database (Update)' : markedCount === qStudents.length ? 'Semua Terisi' : 'Belum Selesai'}
+                  </span>
                 </div>
                 <button 
                   onClick={handleQuickSave} 
                   disabled={isSaving || markedCount === 0} 
-                  className="w-full sm:w-auto px-10 py-4 bg-indigo-600 text-white rounded-2xl font-black text-sm tracking-wide flex items-center justify-center space-x-3 hover:bg-indigo-700 disabled:bg-slate-200 disabled:text-slate-400 shadow-xl shadow-indigo-200/50 transition-all hover:-translate-y-0.5 active:translate-y-0"
+                  className={`w-full sm:w-auto px-10 py-4 text-white rounded-2xl font-black text-sm tracking-wide flex items-center justify-center space-x-3 transition-all hover:-translate-y-0.5 active:translate-y-0 disabled:bg-slate-200 disabled:text-slate-400 shadow-xl ${
+                    hasExistingData 
+                      ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200/50' 
+                      : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200/50'
+                  }`}
                 >
                   {isSaving ? <RefreshCw size={20} className="animate-spin" /> : <Save size={20} />}
-                  <span>{isSaving ? 'MENYIMPAN...' : 'SIMPAN PRESENSI'}</span>
+                  <span>{isSaving ? 'MENYIMPAN...' : hasExistingData ? 'UPDATE DATA PRESENSI' : 'SIMPAN PRESENSI'}</span>
                 </button>
               </div>
             </>

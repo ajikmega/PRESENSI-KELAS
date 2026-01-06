@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { Search, Save, ClipboardCheck, Calendar, BookOpen, Users, RefreshCw, CheckCheck } from 'lucide-react';
+import { Search, Save, ClipboardCheck, Calendar, BookOpen, Users, RefreshCw, CheckCheck, Edit } from 'lucide-react';
 import { ClassRoom, Student, Subject, AttendanceRecord, AttendanceStatus } from '../types';
 import { supabase } from '../lib/supabase';
 
@@ -19,6 +19,7 @@ const AttendanceEntry: React.FC<AttendanceEntryProps> = ({ classes, students, su
   const [localAttendance, setLocalAttendance] = useState<Record<string, AttendanceStatus>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
+  const [hasExistingRecords, setHasExistingRecords] = useState(false);
 
   const handleLoadAttendance = () => {
     if (!selectedClassId || !selectedSubjectId || !selectedDate) return;
@@ -29,9 +30,15 @@ const AttendanceEntry: React.FC<AttendanceEntryProps> = ({ classes, students, su
       a.date === selectedDate
     );
 
-    const mapped: Record<string, AttendanceStatus> = {};
-    existing.forEach(a => mapped[a.studentId] = a.status);
-    setLocalAttendance(mapped);
+    if (existing.length > 0) {
+      const mapped: Record<string, AttendanceStatus> = {};
+      existing.forEach(a => mapped[a.studentId] = a.status);
+      setLocalAttendance(mapped);
+      setHasExistingRecords(true);
+    } else {
+      setLocalAttendance({});
+      setHasExistingRecords(false);
+    }
     setIsSaved(false);
   };
 
@@ -46,6 +53,7 @@ const AttendanceEntry: React.FC<AttendanceEntryProps> = ({ classes, students, su
     if (!selectedClassId || !selectedSubjectId || !selectedDate) return;
     setIsSaving(true);
 
+    // DETERMINISTIC ID: ID unik per Kombinasi (Kelas-Mapel-Tanggal-Siswa)
     const newRecords: AttendanceRecord[] = classStudents.map(student => ({
       id: `${selectedClassId}-${selectedSubjectId}-${selectedDate}-${student.id}`,
       studentId: student.id,
@@ -58,11 +66,13 @@ const AttendanceEntry: React.FC<AttendanceEntryProps> = ({ classes, students, su
     const { error } = await supabase.from('attendance').upsert(newRecords);
 
     if (!error) {
+      // DEDUPLICATION: Hapus data lama dari state sebelum memasukkan yang baru
       setAttendance(prev => [
         ...prev.filter(a => !(a.classId === selectedClassId && a.subjectId === selectedSubjectId && a.date === selectedDate)),
         ...newRecords
       ]);
       setIsSaved(true);
+      setHasExistingRecords(true);
       setTimeout(() => setIsSaved(false), 3000);
     } else {
       alert('Gagal menyimpan ke database: ' + error.message);
@@ -141,7 +151,14 @@ const AttendanceEntry: React.FC<AttendanceEntryProps> = ({ classes, students, su
       ) : (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
-            <h3 className="font-semibold text-slate-700">Daftar Kehadiran Siswa</h3>
+            <div className="flex items-center space-x-3">
+              <h3 className="font-semibold text-slate-700">Daftar Kehadiran Siswa</h3>
+              {hasExistingRecords && (
+                <span className="flex items-center text-[10px] font-bold px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full border border-emerald-200">
+                  <Edit size={10} className="mr-1" /> DATA SUDAH TERISI
+                </span>
+              )}
+            </div>
             <button 
               onClick={setAllHadir}
               className="px-3 py-1.5 text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-100 rounded hover:bg-emerald-100 transition-colors flex items-center"
@@ -203,20 +220,29 @@ const AttendanceEntry: React.FC<AttendanceEntryProps> = ({ classes, students, su
             </table>
           </div>
           <div className="p-6 bg-slate-50 border-t border-slate-200 flex justify-between items-center">
-            <p className="text-sm text-slate-500">
-              {Object.keys(localAttendance).length} dari {classStudents.length} siswa sudah diabsen
-            </p>
+            <div className="flex flex-col">
+              <p className="text-sm text-slate-500 font-medium">
+                {Object.keys(localAttendance).length} dari {classStudents.length} siswa sudah diabsen
+              </p>
+              {hasExistingRecords && (
+                <p className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider">
+                  ⚠️ Mengklik simpan akan memperbarui data yang ada.
+                </p>
+              )}
+            </div>
             <button 
               onClick={saveAttendance}
               disabled={isSaving}
-              className={`flex items-center space-x-2 px-8 py-3 rounded-lg font-bold transition-all ${
+              className={`flex items-center space-x-2 px-8 py-3 rounded-lg font-bold transition-all shadow-lg hover:-translate-y-0.5 active:translate-y-0 ${
                 isSaved 
                   ? 'bg-emerald-500 text-white' 
-                  : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg disabled:bg-slate-300'
+                  : hasExistingRecords 
+                    ? 'bg-emerald-600 text-white hover:bg-emerald-700' 
+                    : 'bg-indigo-600 text-white hover:bg-indigo-700 disabled:bg-slate-300'
               }`}
             >
               {isSaving ? <RefreshCw className="animate-spin" size={18} /> : <Save size={18} />}
-              <span>{isSaved ? 'Berhasil Disimpan!' : isSaving ? 'Menyimpan...' : 'Simpan Absensi'}</span>
+              <span>{isSaved ? 'Berhasil Diperbarui!' : isSaving ? 'Menyimpan...' : hasExistingRecords ? 'Update Absensi' : 'Simpan Absensi'}</span>
             </button>
           </div>
         </div>
