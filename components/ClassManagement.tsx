@@ -1,7 +1,8 @@
 
 import React, { useState } from 'react';
-import { Plus, Trash2, FileUp, Download, Info, ChevronRight, Search, Users, UserPlus, X, Check } from 'lucide-react';
+import { Plus, Trash2, FileUp, Info, ChevronRight, Search, Users, UserPlus, X, Check, RefreshCw } from 'lucide-react';
 import { ClassRoom, Student } from '../types';
+import { supabase } from '../lib/supabase';
 
 interface ClassManagementProps {
   classes: ClassRoom[];
@@ -14,55 +15,88 @@ const ClassManagement: React.FC<ClassManagementProps> = ({ classes, setClasses, 
   const [newClassName, setNewClassName] = useState('');
   const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
   
-  // State for manual student entry
   const [showAddManual, setShowAddManual] = useState(false);
   const [manualName, setManualName] = useState('');
   const [manualNisn, setManualNisn] = useState('');
 
-  const addClass = () => {
+  const addClass = async () => {
     if (!newClassName.trim()) return;
-    const newClass: ClassRoom = {
-      id: Date.now().toString(),
-      name: newClassName,
-    };
-    setClasses([...classes, newClass]);
-    setNewClassName('');
+    setIsProcessing(true);
+    
+    const newClass = { id: Date.now().toString(), name: newClassName };
+    
+    const { error } = await supabase.from('classes').insert([newClass]);
+    
+    if (!error) {
+      setClasses([...classes, newClass]);
+      setNewClassName('');
+    } else {
+      alert('Gagal menambah kelas ke database: ' + error.message);
+    }
+    setIsProcessing(false);
   };
 
-  const deleteClass = (id: string) => {
-    if (confirm('Hapus kelas ini? Semua data siswa di dalamnya juga akan terhapus.')) {
-      setClasses(classes.filter(c => c.id !== id));
-      setStudents(students.filter(s => s.classId !== id));
-      if (selectedClassId === id) setSelectedClassId(null);
+  const deleteClass = async (id: string) => {
+    if (confirm('Hapus kelas ini? Semua data siswa di dalamnya juga akan terhapus di database.')) {
+      setIsProcessing(true);
+      const { error } = await supabase.from('classes').delete().eq('id', id);
+      
+      if (!error) {
+        setClasses(classes.filter(c => c.id !== id));
+        setStudents(students.filter(s => s.classId !== id));
+        if (selectedClassId === id) setSelectedClassId(null);
+      } else {
+        alert('Gagal menghapus kelas: ' + error.message);
+      }
+      setIsProcessing(false);
     }
   };
 
-  const addStudentManual = () => {
+  const addStudentManual = async () => {
     if (!manualName.trim() || !manualNisn.trim() || !selectedClassId) return;
+    setIsProcessing(true);
     
-    const newStudent: Student = {
+    const newStudent = {
       id: `man-${Date.now()}`,
       nisn: manualNisn,
       name: manualName,
       classId: selectedClassId,
     };
     
-    setStudents(prev => [...prev, newStudent]);
-    setManualName('');
-    setManualNisn('');
-    setShowAddManual(false);
+    const { error } = await supabase.from('students').insert([newStudent]);
+    
+    if (!error) {
+      setStudents(prev => [...prev, newStudent]);
+      setManualName('');
+      setManualNisn('');
+      setShowAddManual(false);
+    } else {
+      alert('Gagal menyimpan siswa: ' + error.message);
+    }
+    setIsProcessing(false);
   };
 
-  const handleExcelUpload = (e: React.ChangeEvent<HTMLInputElement>, classId: string) => {
+  const deleteStudent = async (studentId: string) => {
+    setIsProcessing(true);
+    const { error } = await supabase.from('students').delete().eq('id', studentId);
+    if (!error) {
+      setStudents(students.filter(s => s.id !== studentId));
+    }
+    setIsProcessing(false);
+  };
+
+  const handleExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>, classId: string) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    setIsProcessing(true);
     const reader = new FileReader();
-    reader.onload = (evt) => {
+    reader.onload = async (evt) => {
       try {
         const bstr = evt.target?.result;
-        // @ts-ignore (XLSX defined via CDN in index.html)
+        // @ts-ignore
         const wb = XLSX.read(bstr, { type: 'binary' });
         const wsname = wb.SheetNames[0];
         const ws = wb.Sheets[wsname];
@@ -76,15 +110,23 @@ const ClassManagement: React.FC<ClassManagementProps> = ({ classes, setClasses, 
           classId: classId,
         }));
 
-        setStudents(prev => [...prev, ...importedStudents]);
-        alert(`Berhasil mengimpor ${importedStudents.length} siswa.`);
+        const { error } = await supabase.from('students').insert(importedStudents);
+        
+        if (!error) {
+          setStudents(prev => [...prev, ...importedStudents]);
+          alert(`Berhasil mengimpor ${importedStudents.length} siswa.`);
+        } else {
+          alert('Gagal impor ke database: ' + error.message);
+        }
       } catch (error) {
         console.error(error);
-        alert('Gagal membaca file Excel. Pastikan format kolom minimal: Nama, NISN');
+        alert('Gagal membaca file Excel.');
+      } finally {
+        setIsProcessing(false);
       }
     };
     reader.readAsBinaryString(file);
-    e.target.value = ''; // Reset input
+    e.target.value = ''; 
   };
 
   const selectedClass = classes.find(c => c.id === selectedClassId);
@@ -94,8 +136,13 @@ const ClassManagement: React.FC<ClassManagementProps> = ({ classes, setClasses, 
   );
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-      {/* Sidebar: Class List */}
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 relative">
+      {isProcessing && (
+        <div className="absolute inset-0 bg-white/50 z-50 flex items-center justify-center backdrop-blur-[1px] rounded-xl">
+          <RefreshCw className="animate-spin text-indigo-600" size={32} />
+        </div>
+      )}
+      
       <div className="lg:col-span-4 space-y-6">
         <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
           <h3 className="text-lg font-semibold mb-4 text-slate-800">Tambah Kelas</h3>
@@ -103,15 +150,12 @@ const ClassManagement: React.FC<ClassManagementProps> = ({ classes, setClasses, 
             <input 
               type="text" 
               placeholder="Contoh: XII RPL 1" 
-              className="flex-1 px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+              className="flex-1 px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
               value={newClassName}
               onChange={(e) => setNewClassName(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && addClass()}
             />
-            <button 
-              onClick={addClass}
-              className="p-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-            >
+            <button onClick={addClass} className="p-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors">
               <Plus size={20} />
             </button>
           </div>
@@ -128,23 +172,18 @@ const ClassManagement: React.FC<ClassManagementProps> = ({ classes, setClasses, 
               classes.map(cls => (
                 <div 
                   key={cls.id} 
-                  className={`group p-4 flex items-center justify-between cursor-pointer transition-colors ${
-                    selectedClassId === cls.id ? 'bg-indigo-50' : 'hover:bg-slate-50'
-                  }`}
+                  className={`group p-4 flex items-center justify-between cursor-pointer transition-colors ${selectedClassId === cls.id ? 'bg-indigo-50' : 'hover:bg-slate-50'}`}
                   onClick={() => setSelectedClassId(cls.id)}
                 >
                   <div className="flex items-center space-x-3">
-                    <div className={`w-2 h-8 rounded-full ${selectedClassId === cls.id ? 'bg-indigo-500' : 'bg-slate-200 group-hover:bg-slate-300'}`}></div>
+                    <div className={`w-2 h-8 rounded-full ${selectedClassId === cls.id ? 'bg-indigo-500' : 'bg-slate-200'}`}></div>
                     <div>
                       <h4 className={`font-medium ${selectedClassId === cls.id ? 'text-indigo-700' : 'text-slate-700'}`}>{cls.name}</h4>
                       <p className="text-xs text-slate-500">{students.filter(s => s.classId === cls.id).length} Siswa</p>
                     </div>
                   </div>
                   <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); deleteClass(cls.id); }}
-                      className="p-1.5 text-slate-400 hover:text-red-600 transition-colors"
-                    >
+                    <button onClick={(e) => { e.stopPropagation(); deleteClass(cls.id); }} className="p-1.5 text-slate-400 hover:text-red-600">
                       <Trash2 size={16} />
                     </button>
                     <ChevronRight size={18} className="text-slate-300 ml-2" />
@@ -156,7 +195,6 @@ const ClassManagement: React.FC<ClassManagementProps> = ({ classes, setClasses, 
         </div>
       </div>
 
-      {/* Main Content: Student List in Selected Class */}
       <div className="lg:col-span-8">
         {!selectedClassId ? (
           <div className="h-[70vh] flex flex-col items-center justify-center bg-white rounded-xl border border-dashed border-slate-300 text-slate-400">
@@ -168,14 +206,12 @@ const ClassManagement: React.FC<ClassManagementProps> = ({ classes, setClasses, 
             <div className="p-6 border-b border-slate-200 flex flex-wrap items-center justify-between gap-4">
               <div>
                 <h3 className="text-xl font-bold text-slate-800">{selectedClass?.name}</h3>
-                <p className="text-sm text-slate-500">Total {filteredStudents.length} Siswa ditemukan</p>
+                <p className="text-sm text-slate-500">{filteredStudents.length} Siswa ditemukan</p>
               </div>
               <div className="flex space-x-2">
                 <button 
                   onClick={() => setShowAddManual(!showAddManual)}
-                  className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-colors text-sm font-medium ${
-                    showAddManual ? 'bg-slate-200 text-slate-700' : 'bg-indigo-600 text-white hover:bg-indigo-700'
-                  }`}
+                  className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-colors text-sm font-medium ${showAddManual ? 'bg-slate-200 text-slate-700' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
                 >
                   {showAddManual ? <X size={18} /> : <UserPlus size={18} />}
                   <span>{showAddManual ? 'Batal' : 'Tambah Siswa'}</span>
@@ -183,44 +219,22 @@ const ClassManagement: React.FC<ClassManagementProps> = ({ classes, setClasses, 
                 <label className="flex items-center space-x-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors cursor-pointer text-sm font-medium shadow-sm">
                   <FileUp size={18} />
                   <span>Impor Excel</span>
-                  <input 
-                    type="file" 
-                    accept=".xlsx, .xls" 
-                    className="hidden" 
-                    onChange={(e) => handleExcelUpload(e, selectedClassId)}
-                  />
+                  <input type="file" accept=".xlsx, .xls" className="hidden" onChange={(e) => handleExcelUpload(e, selectedClassId)} />
                 </label>
               </div>
             </div>
 
-            {/* Manual Add Student Form */}
             {showAddManual && (
-              <div className="p-4 bg-indigo-50 border-b border-indigo-100 flex flex-wrap items-end gap-4 animate-in fade-in slide-in-from-top-2 duration-200">
+              <div className="p-4 bg-indigo-50 border-b border-indigo-100 flex flex-wrap items-end gap-4">
                 <div className="flex-1 min-w-[200px]">
                   <label className="block text-xs font-bold text-indigo-700 uppercase mb-1">Nama Siswa</label>
-                  <input 
-                    type="text" 
-                    className="w-full px-3 py-2 bg-white border border-indigo-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
-                    placeholder="Nama Lengkap"
-                    value={manualName}
-                    onChange={(e) => setManualName(e.target.value)}
-                  />
+                  <input type="text" className="w-full px-3 py-2 bg-white border border-indigo-200 rounded-lg text-sm" placeholder="Nama Lengkap" value={manualName} onChange={(e) => setManualName(e.target.value)} />
                 </div>
                 <div className="w-48">
                   <label className="block text-xs font-bold text-indigo-700 uppercase mb-1">NISN</label>
-                  <input 
-                    type="text" 
-                    className="w-full px-3 py-2 bg-white border border-indigo-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm font-mono"
-                    placeholder="Nomor Induk"
-                    value={manualNisn}
-                    onChange={(e) => setManualNisn(e.target.value)}
-                  />
+                  <input type="text" className="w-full px-3 py-2 bg-white border border-indigo-200 rounded-lg text-sm" placeholder="Nomor Induk" value={manualNisn} onChange={(e) => setManualNisn(e.target.value)} />
                 </div>
-                <button 
-                  onClick={addStudentManual}
-                  disabled={!manualName.trim() || !manualNisn.trim()}
-                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-bold flex items-center space-x-2 disabled:bg-indigo-300 shadow-sm"
-                >
+                <button onClick={addStudentManual} disabled={!manualName.trim() || !manualNisn.trim()} className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-bold flex items-center space-x-2 disabled:bg-indigo-300">
                   <Check size={18} />
                   <span>Simpan</span>
                 </button>
@@ -230,44 +244,31 @@ const ClassManagement: React.FC<ClassManagementProps> = ({ classes, setClasses, 
             <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center">
               <div className="relative flex-1 max-w-md">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                <input 
-                  type="text" 
-                  placeholder="Cari Nama atau NISN..." 
-                  className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
+                <input type="text" placeholder="Cari Nama atau NISN..." className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
               </div>
             </div>
 
             <div className="flex-1 overflow-y-auto">
-              <table className="w-full text-left border-collapse">
+              <table className="w-full text-left">
                 <thead className="sticky top-0 bg-slate-50 z-10 border-b border-slate-200">
                   <tr>
-                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-20">No</th>
-                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">NISN</th>
-                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Nama Lengkap</th>
-                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Aksi</th>
+                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase w-20">No</th>
+                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase">NISN</th>
+                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Nama Lengkap</th>
+                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase text-right">Aksi</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {filteredStudents.length === 0 ? (
-                    <tr>
-                      <td colSpan={4} className="px-6 py-12 text-center text-slate-400 italic">
-                        Belum ada siswa di kelas ini. Silakan tambah manual atau impor dari Excel.
-                      </td>
-                    </tr>
+                    <tr><td colSpan={4} className="px-6 py-12 text-center text-slate-400 italic">Belum ada siswa di kelas ini.</td></tr>
                   ) : (
                     filteredStudents.map((student, idx) => (
-                      <tr key={student.id} className="hover:bg-slate-50 transition-colors group">
+                      <tr key={student.id} className="hover:bg-slate-50 group">
                         <td className="px-6 py-4 text-sm text-slate-600">{idx + 1}</td>
                         <td className="px-6 py-4 text-sm font-mono text-slate-600">{student.nisn}</td>
                         <td className="px-6 py-4 text-sm font-medium text-slate-800">{student.name}</td>
                         <td className="px-6 py-4 text-sm text-right">
-                          <button 
-                            onClick={() => setStudents(students.filter(s => s.id !== student.id))}
-                            className="p-2 text-slate-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
-                          >
+                          <button onClick={() => deleteStudent(student.id)} className="p-2 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100">
                             <Trash2 size={18} />
                           </button>
                         </td>
@@ -276,17 +277,6 @@ const ClassManagement: React.FC<ClassManagementProps> = ({ classes, setClasses, 
                   )}
                 </tbody>
               </table>
-            </div>
-
-            <div className="p-4 bg-indigo-50 flex items-start space-x-3 text-xs text-indigo-700 border-t border-indigo-100">
-              <Info size={16} className="mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="font-bold mb-1">Panduan Manajemen Siswa:</p>
-                <ul className="list-disc list-inside space-y-1">
-                  <li>Gunakan <strong>Tambah Siswa</strong> untuk memasukkan data satu per satu.</li>
-                  <li>Gunakan <strong>Impor Excel</strong> untuk memasukkan data massal. Pastikan file Excel memiliki kolom: <code>Nama</code> dan <code>NISN</code>.</li>
-                </ul>
-              </div>
             </div>
           </div>
         )}

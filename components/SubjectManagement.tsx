@@ -1,7 +1,8 @@
 
 import React, { useState } from 'react';
-import { Plus, Trash2, BookOpen } from 'lucide-react';
+import { Plus, Trash2, BookOpen, RefreshCw } from 'lucide-react';
 import { Subject } from '../types';
+import { supabase } from '../lib/supabase';
 
 interface SubjectManagementProps {
   subjects: Subject[];
@@ -10,25 +11,50 @@ interface SubjectManagementProps {
 
 const SubjectManagement: React.FC<SubjectManagementProps> = ({ subjects, setSubjects }) => {
   const [newSubjectName, setNewSubjectName] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
 
-  const addSubject = () => {
+  const addSubject = async () => {
     if (!newSubjectName.trim()) return;
+    setIsProcessing(true);
+    
     const newSub: Subject = {
       id: Date.now().toString(),
       name: newSubjectName,
     };
-    setSubjects([...subjects, newSub]);
-    setNewSubjectName('');
+
+    const { error } = await supabase.from('subjects').insert([newSub]);
+    
+    if (!error) {
+      setSubjects([...subjects, newSub]);
+      setNewSubjectName('');
+    } else {
+      alert('Gagal menambah mata pelajaran: ' + error.message);
+    }
+    setIsProcessing(false);
   };
 
-  const deleteSubject = (id: string) => {
+  const deleteSubject = async (id: string) => {
     if (confirm('Hapus mata pelajaran ini?')) {
-      setSubjects(subjects.filter(s => s.id !== id));
+      setIsProcessing(true);
+      const { error } = await supabase.from('subjects').delete().eq('id', id);
+      
+      if (!error) {
+        setSubjects(subjects.filter(s => s.id !== id));
+      } else {
+        alert('Gagal menghapus mata pelajaran: ' + error.message);
+      }
+      setIsProcessing(false);
     }
   };
 
   return (
-    <div className="max-w-2xl mx-auto space-y-8">
+    <div className="max-w-2xl mx-auto space-y-8 relative">
+      {isProcessing && (
+        <div className="absolute inset-0 bg-white/50 z-50 flex items-center justify-center backdrop-blur-[1px] rounded-xl">
+          <RefreshCw className="animate-spin text-indigo-600" size={32} />
+        </div>
+      )}
+
       <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
         <h3 className="text-lg font-semibold mb-4 text-slate-800">Tambah Mata Pelajaran</h3>
         <div className="flex space-x-2">
@@ -39,10 +65,12 @@ const SubjectManagement: React.FC<SubjectManagementProps> = ({ subjects, setSubj
             value={newSubjectName}
             onChange={(e) => setNewSubjectName(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && addSubject()}
+            disabled={isProcessing}
           />
           <button 
             onClick={addSubject}
-            className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium flex items-center space-x-2"
+            disabled={isProcessing || !newSubjectName.trim()}
+            className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium flex items-center space-x-2 disabled:bg-slate-300"
           >
             <Plus size={18} />
             <span>Simpan</span>
@@ -72,6 +100,7 @@ const SubjectManagement: React.FC<SubjectManagementProps> = ({ subjects, setSubj
                 <button 
                   onClick={() => deleteSubject(sub.id)}
                   className="p-2 text-slate-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                  disabled={isProcessing}
                 >
                   <Trash2 size={18} />
                 </button>

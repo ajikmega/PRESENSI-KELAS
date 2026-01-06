@@ -1,7 +1,8 @@
 
 import React, { useState } from 'react';
-import { Search, Save, ClipboardCheck, Calendar, BookOpen, Users } from 'lucide-react';
+import { Search, Save, ClipboardCheck, Calendar, BookOpen, Users, RefreshCw, CheckCheck } from 'lucide-react';
 import { ClassRoom, Student, Subject, AttendanceRecord, AttendanceStatus } from '../types';
+import { supabase } from '../lib/supabase';
 
 interface AttendanceEntryProps {
   classes: ClassRoom[];
@@ -16,9 +17,9 @@ const AttendanceEntry: React.FC<AttendanceEntryProps> = ({ classes, students, su
   const [selectedSubjectId, setSelectedSubjectId] = useState('');
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [localAttendance, setLocalAttendance] = useState<Record<string, AttendanceStatus>>({});
+  const [isSaving, setIsSaving] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
 
-  // Load existing records for the selected combination
   const handleLoadAttendance = () => {
     if (!selectedClassId || !selectedSubjectId || !selectedDate) return;
     
@@ -41,8 +42,9 @@ const AttendanceEntry: React.FC<AttendanceEntryProps> = ({ classes, students, su
     setIsSaved(false);
   };
 
-  const saveAttendance = () => {
+  const saveAttendance = async () => {
     if (!selectedClassId || !selectedSubjectId || !selectedDate) return;
+    setIsSaving(true);
 
     const newRecords: AttendanceRecord[] = classStudents.map(student => ({
       id: `${selectedClassId}-${selectedSubjectId}-${selectedDate}-${student.id}`,
@@ -50,17 +52,23 @@ const AttendanceEntry: React.FC<AttendanceEntryProps> = ({ classes, students, su
       classId: selectedClassId,
       subjectId: selectedSubjectId,
       date: selectedDate,
-      status: localAttendance[student.id] || AttendanceStatus.ALPHA, // Default Alpha if not marked
+      status: localAttendance[student.id] || AttendanceStatus.ALPHA,
     }));
 
-    // Remove old records for this specific combination and add new ones
-    setAttendance(prev => [
-      ...prev.filter(a => !(a.classId === selectedClassId && a.subjectId === selectedSubjectId && a.date === selectedDate)),
-      ...newRecords
-    ]);
+    const { error } = await supabase.from('attendance').upsert(newRecords);
 
-    setIsSaved(true);
-    setTimeout(() => setIsSaved(false), 3000);
+    if (!error) {
+      setAttendance(prev => [
+        ...prev.filter(a => !(a.classId === selectedClassId && a.subjectId === selectedSubjectId && a.date === selectedDate)),
+        ...newRecords
+      ]);
+      setIsSaved(true);
+      setTimeout(() => setIsSaved(false), 3000);
+    } else {
+      alert('Gagal menyimpan ke database: ' + error.message);
+    }
+
+    setIsSaving(false);
   };
 
   const setAllHadir = () => {
@@ -70,8 +78,13 @@ const AttendanceEntry: React.FC<AttendanceEntryProps> = ({ classes, students, su
   };
 
   return (
-    <div className="space-y-6">
-      {/* Selection Header */}
+    <div className="space-y-6 relative">
+      {isSaving && (
+        <div className="fixed inset-0 bg-white/20 z-[60] flex items-center justify-center backdrop-blur-[1px]">
+          <RefreshCw className="animate-spin text-indigo-600" size={48} />
+        </div>
+      )}
+
       <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
         <div>
           <label className="block text-sm font-medium text-slate-500 mb-1.5 flex items-center">
@@ -120,7 +133,6 @@ const AttendanceEntry: React.FC<AttendanceEntryProps> = ({ classes, students, su
         </button>
       </div>
 
-      {/* Attendance Table */}
       {!selectedClassId || !selectedSubjectId ? (
         <div className="h-64 flex flex-col items-center justify-center text-slate-400 border border-dashed border-slate-300 rounded-xl bg-slate-50">
           <ClipboardCheck size={48} className="opacity-10 mb-2" />
@@ -130,14 +142,13 @@ const AttendanceEntry: React.FC<AttendanceEntryProps> = ({ classes, students, su
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
             <h3 className="font-semibold text-slate-700">Daftar Kehadiran Siswa</h3>
-            <div className="flex space-x-2">
-              <button 
-                onClick={setAllHadir}
-                className="px-3 py-1.5 text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-100 rounded hover:bg-emerald-100 transition-colors"
-              >
-                Set Semua Hadir
-              </button>
-            </div>
+            <button 
+              onClick={setAllHadir}
+              className="px-3 py-1.5 text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-100 rounded hover:bg-emerald-100 transition-colors flex items-center"
+            >
+              <CheckCheck size={14} className="mr-1" />
+              Set Semua Hadir
+            </button>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left">
@@ -197,14 +208,15 @@ const AttendanceEntry: React.FC<AttendanceEntryProps> = ({ classes, students, su
             </p>
             <button 
               onClick={saveAttendance}
+              disabled={isSaving}
               className={`flex items-center space-x-2 px-8 py-3 rounded-lg font-bold transition-all ${
                 isSaved 
                   ? 'bg-emerald-500 text-white' 
-                  : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg'
+                  : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg disabled:bg-slate-300'
               }`}
             >
-              <Save size={18} />
-              <span>{isSaved ? 'Berhasil Disimpan!' : 'Simpan Absensi'}</span>
+              {isSaving ? <RefreshCw className="animate-spin" size={18} /> : <Save size={18} />}
+              <span>{isSaved ? 'Berhasil Disimpan!' : isSaving ? 'Menyimpan...' : 'Simpan Absensi'}</span>
             </button>
           </div>
         </div>

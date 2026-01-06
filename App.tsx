@@ -8,10 +8,13 @@ import {
   FileBarChart, 
   Menu,
   X,
-  Bell,
-  UserCircle
+  UserCircle,
+  RefreshCw,
+  AlertTriangle,
+  Database
 } from 'lucide-react';
-import { ViewState, ClassRoom, Student, Subject, AttendanceRecord, AttendanceStatus } from './types';
+import { ViewState, ClassRoom, Student, Subject, AttendanceRecord } from './types';
+import { supabase } from './lib/supabase';
 import Dashboard from './components/Dashboard';
 import ClassManagement from './components/ClassManagement';
 import SubjectManagement from './components/SubjectManagement';
@@ -21,33 +24,44 @@ import RecapModule from './components/RecapModule';
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<ViewState>('DASHBOARD');
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
+  const [dbError, setDbError] = useState<string | null>(null);
   
-  // App State (In real world this would be from an API)
   const [classes, setClasses] = useState<ClassRoom[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
 
-  // Load initial data from localStorage
-  useEffect(() => {
-    const savedClasses = localStorage.getItem('abs_classes');
-    const savedStudents = localStorage.getItem('abs_students');
-    const savedSubjects = localStorage.getItem('abs_subjects');
-    const savedAttendance = localStorage.getItem('abs_attendance');
+  const fetchData = async () => {
+    setIsLoading(true);
+    setDbError(null);
+    try {
+      const { data: cls, error: clsErr } = await supabase.from('classes').select('*');
+      const { data: std, error: stdErr } = await supabase.from('students').select('*');
+      const { data: sub, error: subErr } = await supabase.from('subjects').select('*');
+      const { data: att, error: attErr } = await supabase.from('attendance').select('*');
 
-    if (savedClasses) setClasses(JSON.parse(savedClasses));
-    if (savedStudents) setStudents(JSON.parse(savedStudents));
-    if (savedSubjects) setSubjects(JSON.parse(savedSubjects));
-    if (savedAttendance) setAttendance(JSON.parse(savedAttendance));
+      // Cek jika tabel belum ada (Error 42P01 di Postgres)
+      if (clsErr?.code === '42P01' || stdErr?.code === '42P01') {
+        setDbError("Tabel database belum dibuat di Supabase. Silakan jalankan script SQL yang tersedia.");
+        return;
+      }
+
+      if (cls) setClasses(cls);
+      if (std) setStudents(std);
+      if (sub) setSubjects(sub);
+      if (att) setAttendance(att);
+    } catch (error) {
+      console.error('Error fetching data:', error);
+      setDbError("Gagal terhubung ke Supabase. Periksa koneksi internet atau API Key Anda.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
   }, []);
-
-  // Save to localStorage whenever state changes
-  useEffect(() => {
-    localStorage.setItem('abs_classes', JSON.stringify(classes));
-    localStorage.setItem('abs_students', JSON.stringify(students));
-    localStorage.setItem('abs_subjects', JSON.stringify(subjects));
-    localStorage.setItem('abs_attendance', JSON.stringify(attendance));
-  }, [classes, students, subjects, attendance]);
 
   const navItems = [
     { id: 'DASHBOARD' as ViewState, label: 'Dashboard', icon: LayoutDashboard },
@@ -58,6 +72,37 @@ const App: React.FC = () => {
   ];
 
   const renderView = () => {
+    if (dbError) {
+      return (
+        <div className="h-[60vh] flex flex-col items-center justify-center p-8 bg-white rounded-2xl border-2 border-dashed border-red-100 text-center">
+          <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mb-4">
+            <AlertTriangle size={32} />
+          </div>
+          <h3 className="text-xl font-bold text-slate-800 mb-2">Masalah Database</h3>
+          <p className="text-slate-500 max-w-md mb-6">{dbError}</p>
+          <button 
+            onClick={fetchData}
+            className="px-6 py-2 bg-indigo-600 text-white rounded-lg font-bold flex items-center space-x-2 hover:bg-indigo-700 transition-all"
+          >
+            <RefreshCw size={18} />
+            <span>Coba Sinkronkan Lagi</span>
+          </button>
+        </div>
+      );
+    }
+
+    if (isLoading) {
+      return (
+        <div className="h-[70vh] flex flex-col items-center justify-center space-y-4">
+          <div className="relative">
+             <RefreshCw className="animate-spin text-indigo-600" size={48} />
+             <Database className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-indigo-300" size={16} />
+          </div>
+          <p className="text-slate-500 font-medium animate-pulse">Menghubungkan ke Supabase...</p>
+        </div>
+      );
+    }
+
     switch (currentView) {
       case 'DASHBOARD':
         return (
@@ -93,32 +138,16 @@ const App: React.FC = () => {
       case 'RECAP':
         return <RecapModule classes={classes} students={students} subjects={subjects} attendance={attendance} />;
       default:
-        return (
-          <Dashboard 
-            students={students} 
-            classes={classes} 
-            subjects={subjects} 
-            attendance={attendance} 
-            setAttendance={setAttendance}
-          />
-        );
+        return <Dashboard students={students} classes={classes} subjects={subjects} attendance={attendance} setAttendance={setAttendance} />;
     }
   };
 
   return (
     <div className="min-h-screen flex bg-slate-50">
-      {/* Sidebar */}
-      <aside 
-        className={`${
-          sidebarOpen ? 'w-64' : 'w-20'
-        } transition-all duration-300 ease-in-out bg-indigo-900 text-white flex flex-col fixed inset-y-0 left-0 z-50`}
-      >
+      <aside className={`${sidebarOpen ? 'w-64' : 'w-20'} transition-all duration-300 ease-in-out bg-indigo-900 text-white flex flex-col fixed inset-y-0 left-0 z-50`}>
         <div className="h-16 flex items-center justify-between px-6 bg-indigo-950">
           {sidebarOpen && <span className="text-xl font-bold tracking-tight">AbsensiPintar</span>}
-          <button 
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="p-1.5 rounded-lg bg-indigo-800 hover:bg-indigo-700 transition-colors"
-          >
+          <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-1.5 rounded-lg bg-indigo-800 hover:bg-indigo-700 transition-colors">
             {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
         </div>
@@ -129,9 +158,7 @@ const App: React.FC = () => {
               key={item.id}
               onClick={() => setCurrentView(item.id)}
               className={`w-full flex items-center px-3 py-3 rounded-lg transition-all duration-200 ${
-                currentView === item.id 
-                  ? 'bg-indigo-700 text-white shadow-lg' 
-                  : 'text-indigo-200 hover:bg-indigo-800 hover:text-white'
+                currentView === item.id ? 'bg-indigo-700 text-white shadow-lg' : 'text-indigo-200 hover:bg-indigo-800 hover:text-white'
               }`}
             >
               <item.icon size={22} className={sidebarOpen ? 'mr-3' : 'mx-auto'} />
@@ -148,31 +175,27 @@ const App: React.FC = () => {
             {sidebarOpen && (
               <div className="overflow-hidden">
                 <p className="text-sm font-semibold truncate">Administrator</p>
-                <p className="text-xs text-indigo-300 truncate">admin@sekolah.id</p>
+                <p className="text-xs text-indigo-300 truncate">Supabase Cloud</p>
               </div>
             )}
           </div>
         </div>
       </aside>
 
-      {/* Main Content */}
       <main className={`flex-1 transition-all duration-300 ${sidebarOpen ? 'ml-64' : 'ml-20'}`}>
-        {/* Header */}
         <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 sticky top-0 z-40">
           <h2 className="text-xl font-semibold text-slate-800">
             {navItems.find(i => i.id === currentView)?.label}
           </h2>
           <div className="flex items-center space-x-4">
-            <button className="p-2 text-slate-500 hover:text-indigo-600 relative">
-              <Bell size={20} />
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
+            <button onClick={fetchData} className="p-2 text-slate-400 hover:text-indigo-600 transition-colors" title="Sync Database">
+              <RefreshCw size={20} className={isLoading ? 'animate-spin' : ''} />
             </button>
             <div className="h-8 w-[1px] bg-slate-200 mx-2"></div>
             <span className="text-sm font-medium text-slate-600">{new Date().toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
           </div>
         </header>
 
-        {/* View Container */}
         <div className="p-8 max-w-7xl mx-auto">
           {renderView()}
         </div>
