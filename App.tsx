@@ -36,14 +36,30 @@ const App: React.FC = () => {
     setIsLoading(true);
     setDbError(null);
     try {
-      const { data: cls, error: clsErr } = await supabase.from('classes').select('*');
-      const { data: std, error: stdErr } = await supabase.from('students').select('*');
-      const { data: sub, error: subErr } = await supabase.from('subjects').select('*');
-      const { data: att, error: attErr } = await supabase.from('attendance').select('*');
+      // Menjalankan semua request secara paralel untuk kecepatan maksimal
+      const [
+        { data: cls, error: clsErr },
+        { data: std, error: stdErr },
+        { data: sub, error: subErr },
+        { data: att, error: attErr }
+      ] = await Promise.all([
+        supabase.from('classes').select('*'),
+        supabase.from('students').select('*'),
+        supabase.from('subjects').select('*'),
+        supabase.from('attendance').select('*')
+      ]);
 
-      // Cek jika tabel belum ada (Error 42P01 di Postgres)
-      if (clsErr?.code === '42P01' || stdErr?.code === '42P01') {
-        setDbError("Tabel database belum dibuat di Supabase. Silakan jalankan script SQL yang tersedia.");
+      // Tangani error dari Supabase
+      if (clsErr || stdErr || subErr || attErr) {
+        const anyError = clsErr || stdErr || subErr || attErr;
+        console.error('Database Error:', anyError);
+        
+        if (anyError?.code === '42P01') {
+          setDbError("Tabel database belum ditemukan. Pastikan Anda sudah menjalankan script SQL di Dashboard Supabase.");
+        } else {
+          setDbError(`Gagal mengambil data: ${anyError?.message || 'Unknown Error'}`);
+        }
+        setIsLoading(false);
         return;
       }
 
@@ -51,9 +67,10 @@ const App: React.FC = () => {
       if (std) setStudents(std);
       if (sub) setSubjects(sub);
       if (att) setAttendance(att);
-    } catch (error) {
-      console.error('Error fetching data:', error);
-      setDbError("Gagal terhubung ke Supabase. Periksa koneksi internet atau API Key Anda.");
+      
+    } catch (error: any) {
+      console.error('Network/App Error:', error);
+      setDbError("Gagal terhubung ke server. Periksa koneksi internet atau konfigurasi API Key.");
     } finally {
       setIsLoading(false);
     }
@@ -78,14 +95,14 @@ const App: React.FC = () => {
           <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mb-4">
             <AlertTriangle size={32} />
           </div>
-          <h3 className="text-xl font-bold text-slate-800 mb-2">Masalah Database</h3>
+          <h3 className="text-xl font-bold text-slate-800 mb-2">Masalah Aplikasi</h3>
           <p className="text-slate-500 max-w-md mb-6">{dbError}</p>
           <button 
             onClick={fetchData}
-            className="px-6 py-2 bg-indigo-600 text-white rounded-lg font-bold flex items-center space-x-2 hover:bg-indigo-700 transition-all"
+            className="px-6 py-2 bg-indigo-600 text-white rounded-lg font-bold flex items-center space-x-2 hover:bg-indigo-700 transition-all shadow-lg"
           >
             <RefreshCw size={18} />
-            <span>Coba Sinkronkan Lagi</span>
+            <span>Coba Lagi</span>
           </button>
         </div>
       );
@@ -98,43 +115,20 @@ const App: React.FC = () => {
              <RefreshCw className="animate-spin text-indigo-600" size={48} />
              <Database className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-indigo-300" size={16} />
           </div>
-          <p className="text-slate-500 font-medium animate-pulse">Menghubungkan ke Supabase...</p>
+          <p className="text-slate-500 font-medium animate-pulse">Menghubungkan ke Supabase Cloud...</p>
         </div>
       );
     }
 
     switch (currentView) {
       case 'DASHBOARD':
-        return (
-          <Dashboard 
-            students={students} 
-            classes={classes} 
-            subjects={subjects} 
-            attendance={attendance} 
-            setAttendance={setAttendance}
-          />
-        );
+        return <Dashboard students={students} classes={classes} subjects={subjects} attendance={attendance} setAttendance={setAttendance} />;
       case 'MANAGEMENT_CLASS':
-        return (
-          <ClassManagement 
-            classes={classes} 
-            setClasses={setClasses} 
-            students={students} 
-            setStudents={setStudents} 
-          />
-        );
+        return <ClassManagement classes={classes} setClasses={setClasses} students={students} setStudents={setStudents} />;
       case 'MANAGEMENT_SUBJECT':
         return <SubjectManagement subjects={subjects} setSubjects={setSubjects} />;
       case 'ATTENDANCE':
-        return (
-          <AttendanceEntry 
-            classes={classes} 
-            students={students} 
-            subjects={subjects} 
-            attendance={attendance} 
-            setAttendance={setAttendance}
-          />
-        );
+        return <AttendanceEntry classes={classes} students={students} subjects={subjects} attendance={attendance} setAttendance={setAttendance} />;
       case 'RECAP':
         return <RecapModule classes={classes} students={students} subjects={subjects} attendance={attendance} />;
       default:
@@ -144,7 +138,8 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen flex bg-slate-50">
-      <aside className={`${sidebarOpen ? 'w-64' : 'w-20'} transition-all duration-300 ease-in-out bg-indigo-900 text-white flex flex-col fixed inset-y-0 left-0 z-50`}>
+      {/* Sidebar */}
+      <aside className={`${sidebarOpen ? 'w-64' : 'w-20'} transition-all duration-300 ease-in-out bg-indigo-900 text-white flex flex-col fixed inset-y-0 left-0 z-50 shadow-xl`}>
         <div className="h-16 flex items-center justify-between px-6 bg-indigo-950">
           {sidebarOpen && <span className="text-xl font-bold tracking-tight">AbsensiPintar</span>}
           <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-1.5 rounded-lg bg-indigo-800 hover:bg-indigo-700 transition-colors">
@@ -169,30 +164,36 @@ const App: React.FC = () => {
 
         <div className="p-4 border-t border-indigo-800">
           <div className={`flex items-center ${sidebarOpen ? 'space-x-3' : 'justify-center'}`}>
-            <div className="w-10 h-10 rounded-full bg-indigo-600 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-full bg-indigo-600 flex items-center justify-center border border-indigo-400">
               <UserCircle size={24} />
             </div>
             {sidebarOpen && (
               <div className="overflow-hidden">
                 <p className="text-sm font-semibold truncate">Administrator</p>
-                <p className="text-xs text-indigo-300 truncate">Supabase Cloud</p>
+                <div className="flex items-center space-x-1">
+                  <span className="w-2 h-2 bg-emerald-400 rounded-full"></span>
+                  <p className="text-[10px] text-indigo-300 uppercase font-bold tracking-widest">Online</p>
+                </div>
               </div>
             )}
           </div>
         </div>
       </aside>
 
+      {/* Main Content */}
       <main className={`flex-1 transition-all duration-300 ${sidebarOpen ? 'ml-64' : 'ml-20'}`}>
-        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 sticky top-0 z-40">
+        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 sticky top-0 z-40 shadow-sm">
           <h2 className="text-xl font-semibold text-slate-800">
             {navItems.find(i => i.id === currentView)?.label}
           </h2>
           <div className="flex items-center space-x-4">
-            <button onClick={fetchData} className="p-2 text-slate-400 hover:text-indigo-600 transition-colors" title="Sync Database">
-              <RefreshCw size={20} className={isLoading ? 'animate-spin' : ''} />
+            <button onClick={fetchData} className="p-2 text-slate-400 hover:text-indigo-600 transition-colors" title="Sinkronisasi Ulang">
+              <RefreshCw size={20} className={isLoading ? 'animate-spin text-indigo-500' : ''} />
             </button>
             <div className="h-8 w-[1px] bg-slate-200 mx-2"></div>
-            <span className="text-sm font-medium text-slate-600">{new Date().toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
+            <span className="text-sm font-medium text-slate-600 hidden sm:block">
+              {new Date().toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+            </span>
           </div>
         </header>
 

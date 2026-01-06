@@ -22,11 +22,30 @@
       background: #cbd5e1;
       border-radius: 10px;
     }
+    /* Mencegah layar putih total saat transisi */
+    #root:empty {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      background: #f8fafc;
+    }
+    #root:empty::after {
+      content: "Memuat Aplikasi...";
+      font-weight: 600;
+      color: #6366f1;
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
   </style>
 <script type="importmap">
 {
   "imports": {
     "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "react-dom": "https://esm.sh/react-dom@^19.2.3",
     "recharts": "https://esm.sh/recharts@^3.6.0",
     "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
     "react/": "https://esm.sh/react@^19.2.3/",
@@ -38,5 +57,7 @@
 </head>
 <body class="bg-slate-50 text-slate-900">
   <div id="root"></div>
+  <!-- Tag di bawah ini kritikal agar aplikasi berjalan -->
+  <script type="module" src="index.tsx"></script>
 </body>
 </html>
