@@ -1,0 +1,5 @@
+{
+  "name": "AbsensiPintar - Sistem Manajemen Kehadiran Siswa",
+  "description": "Aplikasi manajemen absensi siswa modern dengan fitur manajemen kelas, mata pelajaran, impor data Excel, dan rekapitulasi semester.",
+  "requestFramePermissions": []
+}
