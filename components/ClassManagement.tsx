@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { Plus, Trash2, FileUp, Info, ChevronRight, Search, Users, UserPlus, X, Check, RefreshCw } from 'lucide-react';
+import { Plus, Trash2, FileUp, Info, ChevronRight, Search, Users, UserPlus, X, Check, RefreshCw, Download } from 'lucide-react';
 import { ClassRoom, Student } from '../types';
 import { supabase } from '../lib/supabase';
 
@@ -87,6 +87,22 @@ const ClassManagement: React.FC<ClassManagementProps> = ({ classes, setClasses, 
     setIsProcessing(false);
   };
 
+  const downloadTemplate = () => {
+    const templateData = [
+      { NISN: '1234567890', Nama: 'Budi Santoso' },
+      { NISN: '0987654321', Nama: 'Ani Wijaya' }
+    ];
+    
+    // @ts-ignore
+    const ws = XLSX.utils.json_to_sheet(templateData);
+    // @ts-ignore
+    const wb = XLSX.utils.book_new();
+    // @ts-ignore
+    XLSX.utils.book_append_sheet(wb, ws, "Daftar Siswa");
+    // @ts-ignore
+    XLSX.writeFile(wb, "Template_Import_Siswa.xlsx");
+  };
+
   const handleExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>, classId: string) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -103,12 +119,18 @@ const ClassManagement: React.FC<ClassManagementProps> = ({ classes, setClasses, 
         // @ts-ignore
         const data = XLSX.utils.sheet_to_json(ws);
 
+        if (data.length === 0) {
+          alert('File Excel kosong atau tidak sesuai format.');
+          setIsProcessing(false);
+          return;
+        }
+
         const importedStudents: Student[] = data.map((item: any, index: number) => ({
           id: `imp-${Date.now()}-${index}`,
-          nisn: String(item.NISN || item.nisn || ''),
+          nisn: String(item.NISN || item.nisn || item['Nomor Induk'] || ''),
           name: item.Nama || item.nama || item.Name || 'Siswa Baru',
           classId: classId,
-        }));
+        })).filter(s => s.name && s.nisn);
 
         const { error } = await supabase.from('students').insert(importedStudents);
         
@@ -150,7 +172,7 @@ const ClassManagement: React.FC<ClassManagementProps> = ({ classes, setClasses, 
             <input 
               type="text" 
               placeholder="Contoh: XII RPL 1" 
-              className="flex-1 px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+              className="flex-1 px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-sm"
               value={newClassName}
               onChange={(e) => setNewClassName(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && addClass()}
@@ -165,7 +187,7 @@ const ClassManagement: React.FC<ClassManagementProps> = ({ classes, setClasses, 
           <div className="p-4 bg-slate-50 border-b border-slate-200">
             <h3 className="font-semibold text-slate-700">Daftar Kelas ({classes.length})</h3>
           </div>
-          <div className="divide-y divide-slate-100 max-h-[60vh] overflow-y-auto">
+          <div className="divide-y divide-slate-100 max-h-[60vh] overflow-y-auto custom-scrollbar">
             {classes.length === 0 ? (
               <div className="p-8 text-center text-slate-400">Belum ada kelas</div>
             ) : (
@@ -208,13 +230,21 @@ const ClassManagement: React.FC<ClassManagementProps> = ({ classes, setClasses, 
                 <h3 className="text-xl font-bold text-slate-800">{selectedClass?.name}</h3>
                 <p className="text-sm text-slate-500">{filteredStudents.length} Siswa ditemukan</p>
               </div>
-              <div className="flex space-x-2">
+              <div className="flex flex-wrap gap-2">
+                <button 
+                  onClick={downloadTemplate}
+                  className="flex items-center space-x-2 px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors text-sm font-medium shadow-sm"
+                  title="Unduh Format Excel"
+                >
+                  <Download size={18} />
+                  <span className="hidden sm:inline">Template</span>
+                </button>
                 <button 
                   onClick={() => setShowAddManual(!showAddManual)}
                   className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-colors text-sm font-medium ${showAddManual ? 'bg-slate-200 text-slate-700' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
                 >
                   {showAddManual ? <X size={18} /> : <UserPlus size={18} />}
-                  <span>{showAddManual ? 'Batal' : 'Tambah Siswa'}</span>
+                  <span>{showAddManual ? 'Batal' : 'Tambah'}</span>
                 </button>
                 <label className="flex items-center space-x-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors cursor-pointer text-sm font-medium shadow-sm">
                   <FileUp size={18} />
@@ -225,7 +255,7 @@ const ClassManagement: React.FC<ClassManagementProps> = ({ classes, setClasses, 
             </div>
 
             {showAddManual && (
-              <div className="p-4 bg-indigo-50 border-b border-indigo-100 flex flex-wrap items-end gap-4">
+              <div className="p-4 bg-indigo-50 border-b border-indigo-100 flex flex-wrap items-end gap-4 animate-in slide-in-from-top-2">
                 <div className="flex-1 min-w-[200px]">
                   <label className="block text-xs font-bold text-indigo-700 uppercase mb-1">Nama Siswa</label>
                   <input type="text" className="w-full px-3 py-2 bg-white border border-indigo-200 rounded-lg text-sm" placeholder="Nama Lengkap" value={manualName} onChange={(e) => setManualName(e.target.value)} />
@@ -246,9 +276,13 @@ const ClassManagement: React.FC<ClassManagementProps> = ({ classes, setClasses, 
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                 <input type="text" placeholder="Cari Nama atau NISN..." className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
               </div>
+              <div className="ml-4 flex items-center text-slate-400 text-xs">
+                <Info size={14} className="mr-1" />
+                Kolom Excel: NISN, Nama
+              </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto">
+            <div className="flex-1 overflow-y-auto custom-scrollbar">
               <table className="w-full text-left">
                 <thead className="sticky top-0 bg-slate-50 z-10 border-b border-slate-200">
                   <tr>
